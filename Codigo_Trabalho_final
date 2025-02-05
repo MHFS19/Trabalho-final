@@ -1,0 +1,202 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <stdbool.h>
+#include <dirent.h>
+#include <sys/types.h>
+
+typedef struct {
+    char codigo_rastreamento[20];
+    char destinatario[100];
+    char endereco[200];
+    char data_envio[16];
+    char transportadora[50];
+} Encomenda;
+
+typedef struct {
+    char codigo_rastreamento[20];
+    char localizacao[100];
+    char data_hora[30];
+    char status[50];
+} Movimentacao;
+
+void criar_diretorio_logs() {
+    struct stat st = {0};
+    if (stat("logs", &st) == -1) {
+        mkdir("logs");
+    }
+}
+
+void registrar_encomenda() {
+    FILE *arquivo = fopen("encomendas.txt", "a");
+    if (arquivo == NULL) {
+        printf("Erro ao abrir o arquivo de encomendas.\n");
+        return;
+    }
+
+    Encomenda enc;
+    printf("Digite o codigo de rastreamento: ");
+    scanf("%s", enc.codigo_rastreamento);
+    printf("Digite o nome do destinatario: ");
+    scanf(" %[^\n]", enc.destinatario);
+    printf("Digite o endereco de destino: ");
+    scanf(" %[^\n]", enc.endereco);
+    printf("Digite a data de envio (DD/MM/AAAA): ");
+    scanf("%s", enc.data_envio);
+    printf("Digite a transportadora: ");
+    scanf(" %[^\n]", enc.transportadora);
+
+    fwrite(&enc, sizeof(enc), 1, arquivo);
+    fclose(arquivo);
+    printf("Encomenda registrada com sucesso!\n");
+}
+
+void atualizar_status() {
+    FILE *arquivo = fopen("encomendas.txt", "r");
+    if (arquivo == NULL) {
+        printf("Erro ao abrir o arquivo de encomendas.\n");
+        return;
+    }
+
+    char codigo[20];
+    printf("Digite o codigo de rastreamento: ");
+    scanf("%s", codigo);
+
+    Encomenda encomenda;
+    bool encontrado = false;
+
+    while (fread(&encomenda, sizeof(encomenda), 1, arquivo)) {
+        if (strcmp(encomenda.codigo_rastreamento, codigo) == 0) {
+            Movimentacao mov;
+            strcpy(mov.codigo_rastreamento, codigo);
+
+            printf("Digite a localizacao atual: ");
+            scanf(" %[^\n]", mov.localizacao);
+            printf("Digite a data e hora (DD/MM/AAAA HH:MM): ");
+            scanf(" %[^\n]", mov.data_hora);
+            printf("Digite o status da encomenda: ");
+            scanf(" %[^\n]", mov.status);
+
+            criar_diretorio_logs();
+            
+            char filename[256];
+            sprintf(filename, "logs/%s.txt", codigo);
+            
+            FILE *log = fopen(filename, "a");
+            if (log == NULL) {
+                printf("Erro ao abrir o arquivo de log.\n");
+                return;
+            }
+
+            fprintf(log, "%s|%s|%s\n", mov.localizacao, mov.data_hora, mov.status);
+            fclose(log);
+
+            encontrado = true;
+            break;
+        }
+    }
+
+    fclose(arquivo);
+    encontrado ? printf("Status atualizado com sucesso!\n") : printf("Encomenda nao encontrada!\n");
+}
+
+void buscar_status() {
+    char codigo[20];
+    printf("Digite o codigo de rastreamento: ");
+    scanf("%s", codigo);
+
+    char filename[256];
+    sprintf(filename, "logs/%s.txt", codigo);
+
+    FILE *log = fopen(filename, "r");
+    if (log == NULL) {
+        printf("Encomenda nao encontrada ou sem movimentacoes.\n");
+        return;
+    }
+
+    Movimentacao ultima;
+    memset(&ultima, 0, sizeof(ultima));
+    char linha[300];
+
+    while (fgets(linha, sizeof(linha), log)) {
+        linha[strcspn(linha, "\n")] = '\0';
+        sscanf(linha, "%99[^|]|%29[^|]|%49[^|]", 
+               ultima.localizacao, 
+               ultima.data_hora, 
+               ultima.status);
+    }
+
+    fclose(log);
+
+    if (strlen(ultima.localizacao) > 0) {
+        printf("\nUltimo status:\n");
+        printf("Localizacao: %s\n", ultima.localizacao);
+        printf("Data/Hora: %s\n", ultima.data_hora);
+        printf("Status: %s\n\n", ultima.status);
+    } else {
+        printf("Nenhuma movimentacao registrada para esta encomenda.\n");
+    }
+}
+
+void exibir_total_movimentacoes() {
+    DIR *pasta;
+    struct dirent *arquivo;
+    int total = 0;
+
+    pasta = opendir("logs");
+    if (pasta == NULL) {
+        printf("Nenhuma movimentacao registrada.\n");
+        return;
+    }
+
+    while ((arquivo = readdir(pasta)) != NULL) {
+        if (strstr(arquivo->d_name, ".txt") != NULL) {
+            char caminho[256];
+            snprintf(caminho, sizeof(caminho), "logs/%s", arquivo->d_name);
+            
+            FILE *log = fopen(caminho, "r");
+            if (log != NULL) {
+                int linhas = 0;
+                char buffer[300];
+                while (fgets(buffer, sizeof(buffer), log)) {
+                    linhas++;
+                }
+                total += linhas;
+                fclose(log);
+            }
+        }
+    }
+    closedir(pasta);
+
+    printf("Total de movimentacoes registradas: %d\n", total);
+}
+
+void menu() {
+    int opcao;
+    do {
+        printf("\n===== SISTEMA DE RASTREAMENTO =====\n");
+        printf("1 - Registrar nova encomenda\n");
+        printf("2 - Atualizar status da encomenda\n");
+        printf("3 - Buscar status de uma encomenda\n");
+        printf("4 - Exibir total de movimentacoes\n");
+        printf("0 - Sair\n");
+        printf("Escolha uma opcao: ");
+        scanf("%d", &opcao);
+
+        switch (opcao) {
+            case 1: registrar_encomenda(); break;
+            case 2: atualizar_status(); break;
+            case 3: buscar_status(); break;
+            case 4: exibir_total_movimentacoes(); break;
+            case 0: printf("Saindo do sistema...\n"); break;
+            default: printf("Opcao invalida!\n");
+        }
+    } while (opcao != 0);
+}
+
+int main() {
+    criar_diretorio_logs();
+    menu();
+    return 0;
+}
